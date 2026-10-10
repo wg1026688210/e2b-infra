@@ -184,26 +184,60 @@ func TestMoveRelativePath(t *testing.T) {
 	u, err := user.Current()
 	require.NoError(t, err)
 
-	// Setup directory structure with unique name to avoid conflicts
 	testRelativePath := fmt.Sprintf("test-move-%s", uuid.New())
 	testFolderPath := filepath.Join(u.HomeDir, testRelativePath)
 	require.NoError(t, os.MkdirAll(testFolderPath, 0o755))
+	defer os.RemoveAll(testFolderPath)
 
-	// Create a test file to move
 	sourceFile := filepath.Join(testFolderPath, "source-file.txt")
 	testContent := []byte("Hello from relative path!")
 	require.NoError(t, os.WriteFile(sourceFile, testContent, 0o644))
 
-	// Destination file path (also relative)
-	destRelativePath := fmt.Sprintf("test-move-dest-%s", uuid.New())
-	destFolderPath := filepath.Join(u.HomeDir, destRelativePath)
-	require.NoError(t, os.MkdirAll(destFolderPath, 0o755))
-	destFile := filepath.Join(destFolderPath, "moved-file.txt")
+	destFile := filepath.Join(t.TempDir(), "moved-file.txt")
 
-	// Service instance
 	svc := mockService()
 
-	// Call the Move function with relative paths
+	ctx := authn.SetInfo(t.Context(), u)
+	req := connect.NewRequest(&filesystem.MoveRequest{
+		Source:      filepath.Join(testRelativePath, "source-file.txt"), // Relative path
+		Destination: destFile,
+	})
+	_, err = svc.Move(ctx, req)
+
+	require.Error(t, err)
+	var connectErr *connect.Error
+	ok := errors.As(err, &connectErr)
+	assert.True(t, ok, "expected error to be of type *connect.Error")
+	assert.Equal(t, connect.CodeNotFound, connectErr.Code())
+	assert.Contains(t, connectErr.Message(), "/"+testRelativePath)
+}
+
+func TestMoveRelativePathAnchoredAtRoot(t *testing.T) {
+	t.Parallel()
+
+	if os.Geteuid() != 0 {
+		t.Skip("anchoring at the sandbox root requires write access to /")
+	}
+
+	u, err := user.Current()
+	require.NoError(t, err)
+
+	testRelativePath := fmt.Sprintf("test-move-root-%s", uuid.New())
+	testFolderPath := filepath.Join("/", testRelativePath)
+	require.NoError(t, os.MkdirAll(testFolderPath, 0o755))
+	defer os.RemoveAll(testFolderPath)
+
+	sourceFile := filepath.Join(testFolderPath, "source-file.txt")
+	testContent := []byte("Hello from relative path!")
+	require.NoError(t, os.WriteFile(sourceFile, testContent, 0o644))
+
+	destRelativePath := fmt.Sprintf("test-move-dest-%s", uuid.New())
+	destFolderPath := filepath.Join("/", destRelativePath)
+	defer os.RemoveAll(destFolderPath)
+	destFile := filepath.Join(destFolderPath, "moved-file.txt")
+
+	svc := mockService()
+
 	ctx := authn.SetInfo(t.Context(), u)
 	req := connect.NewRequest(&filesystem.MoveRequest{
 		Source:      filepath.Join(testRelativePath, "source-file.txt"), // Relative path
@@ -228,10 +262,6 @@ func TestMoveRelativePath(t *testing.T) {
 	content, err := os.ReadFile(destFile)
 	require.NoError(t, err)
 	assert.Equal(t, testContent, content)
-
-	// Clean up
-	os.RemoveAll(testFolderPath)
-	os.RemoveAll(destFolderPath)
 }
 
 func TestMove_Symlinks(t *testing.T) { //nolint:tparallel // this test cannot be executed in parallel

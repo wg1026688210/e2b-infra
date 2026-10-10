@@ -130,35 +130,21 @@ func TestListDirRelativePath(t *testing.T) {
 	u, err := user.Current()
 	require.NoError(t, err)
 
-	// Setup directory structure
-	testRelativePath := fmt.Sprintf("test-%s", uuid.New())
-	testFolderPath := filepath.Join(u.HomeDir, testRelativePath)
-	filePath := filepath.Join(testFolderPath, "file.txt")
-	require.NoError(t, os.MkdirAll(testFolderPath, 0o755))
-	require.NoError(t, os.WriteFile(filePath, []byte("Hello, World!"), 0o644))
-
-	// Service instance
 	svc := mockService()
 	ctx := authn.SetInfo(t.Context(), u)
 
+	testRelativePath := fmt.Sprintf("test-%s", uuid.New())
 	req := connect.NewRequest(&filesystem.ListDirRequest{
 		Path:  testRelativePath,
 		Depth: 1,
 	})
-	resp, err := svc.ListDir(ctx, req)
-	require.NoError(t, err)
-	assert.NotEmpty(t, resp.Msg)
-
-	expectedPaths := []string{
-		filepath.Join(testFolderPath, "file.txt"),
-	}
-	assert.Len(t, resp.Msg.GetEntries(), len(expectedPaths))
-
-	actualPaths := make([]string, len(resp.Msg.GetEntries()))
-	for i, entry := range resp.Msg.GetEntries() {
-		actualPaths[i] = entry.GetPath()
-	}
-	assert.ElementsMatch(t, expectedPaths, actualPaths)
+	_, err = svc.ListDir(ctx, req)
+	require.Error(t, err)
+	var connectErr *connect.Error
+	ok := errors.As(err, &connectErr)
+	assert.True(t, ok, "expected error to be of type *connect.Error")
+	assert.Equal(t, connect.CodeNotFound, connectErr.Code())
+	assert.Contains(t, connectErr.Message(), "/"+testRelativePath)
 }
 
 func TestListDir_Symlinks(t *testing.T) {

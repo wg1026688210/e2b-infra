@@ -17,6 +17,10 @@ func (s Service) Remove(ctx context.Context, req *connect.Request[rpc.RemoveRequ
 		return nil, err
 	}
 
+	if req.Msg.GetPath() == "" {
+		return nil, connect.NewError(connect.CodeInvalidArgument, fmt.Errorf("path must not be empty"))
+	}
+
 	path, err := permissions.ExpandAndResolve(req.Msg.GetPath(), u, s.defaults.Workdir)
 	if err != nil {
 		return nil, connect.NewError(connect.CodeInvalidArgument, err)
